@@ -115,6 +115,7 @@ struct AppParams
   bool         allowScreensaver;
   bool         grabKeyboard;
   SDL_Scancode captureKey;
+  bool         autoCapture;
   bool         disableAlerts;
 
   bool         forceRenderer;
@@ -154,6 +155,7 @@ struct AppParams params =
   .allowScreensaver  = true,
   .grabKeyboard      = true,
   .captureKey        = SDL_SCANCODE_SCROLLLOCK,
+  .autoCapture       = false,
   .disableAlerts     = false,
   .forceRenderer     = false,
   .windowTitle       = "Looking Glass (Client)"
@@ -715,6 +717,58 @@ int eventFilter(void * userdata, SDL_Event * event)
   {
     case SDL_MOUSEMOTION:
     {
+      // toggle capture automatically
+      // capture inside viewport, release at edges
+      if (params.autoCapture)
+      {
+        if (
+          serverMode && (
+            state.cursor.x < 1                                  ||
+            state.cursor.x > state.dstRect.w * state.scaleX - 1 ||
+            state.cursor.y < 1                                  ||
+            state.cursor.y > state.dstRect.h * state.scaleY - 1
+          )
+        )
+        {
+          serverMode = false;
+          spice_mouse_mode(serverMode);
+          SDL_SetRelativeMouseMode(serverMode);
+          SDL_SetWindowGrab(state.window, serverMode);
+          DEBUG_INFO("Server Mode: off [auto-capture]");
+
+          if (state.lgr && !params.disableAlerts)
+            state.lgr->on_alert(
+              state.lgrData,
+              LG_ALERT_WARNING,
+              "Capture Disabled",
+              NULL
+            );
+        }
+        else if (
+          !serverMode && (
+            state.cursor.x > 10                                  &&
+            state.cursor.x < state.dstRect.w * state.scaleX - 10 &&
+            state.cursor.y > 10                                  &&
+            state.cursor.y < state.dstRect.h * state.scaleY - 10
+          )
+        )
+        {
+          serverMode = true;
+          spice_mouse_mode(serverMode);
+          SDL_SetRelativeMouseMode(serverMode);
+          SDL_SetWindowGrab(state.window, serverMode);
+          DEBUG_INFO("Server Mode: on [auto-capture]");
+
+          if (state.lgr && !params.disableAlerts)
+            state.lgr->on_alert(
+              state.lgrData,
+              LG_ALERT_SUCCESS,
+              "Capture Enabled",
+              NULL
+            );
+        }
+      }
+
       if (
         !serverMode && (
           event->motion.x < state.dstRect.x                   ||
@@ -724,7 +778,9 @@ int eventFilter(void * userdata, SDL_Event * event)
         )
       )
       {
-        realignGuest = true;
+        // realigning causes hitching with auto-capture
+        if (!params.autoCapture)
+          realignGuest = true;
         break;
       }
 
@@ -1367,6 +1423,7 @@ void doHelp(char * app)
     "  -S         Disable the screensaver\n"
     "  -G         Don't capture the keyboard in capture mode\n"
     "  -m CODE    Specify the capture key [current: %u (%s)]\n"
+    "  -D         Automatically capture mouse as it enters viewport and release it at border\n"
     "             See https://wiki.libsdl.org/SDLScancodeLookup for valid values\n"
     "  -q         Disable alert messages [current: %s]\n"
     "  -t TITLE   Use a custom title for the main window\n"
@@ -1474,6 +1531,7 @@ static bool load_config(const char * configFile)
     if (config_setting_lookup_bool(global, "ignoreQuit"      , &itmp)) params.ignoreQuit       = (itmp != 0);
     if (config_setting_lookup_bool(global, "allowScreensaver", &itmp)) params.allowScreensaver = (itmp != 0);
     if (config_setting_lookup_bool(global, "disableAlerts"   , &itmp)) params.disableAlerts    = (itmp != 0);
+    if (config_setting_lookup_bool(global, "autoCapture"     , &itmp)) params.autoCapture      = (itmp != 0);
 
     if (config_setting_lookup_int(global, "x", &params.x)) params.center = false;
     if (config_setting_lookup_int(global, "y", &params.y)) params.center = false;
@@ -1631,7 +1689,7 @@ int main(int argc, char * argv[])
 
   for(;;)
   {
-    switch(getopt(argc, argv, "hC:f:L:s:c:p:jMvK:kg:o:anrdFx:y:w:b:QSGm:lqt:"))
+    switch(getopt(argc, argv, "hC:f:L:s:c:p:jMvK:kg:o:anrdFx:y:w:b:QSGm:Dlqt:"))
     {
       case '?':
       case 'h':
@@ -1879,6 +1937,10 @@ int main(int argc, char * argv[])
 
       case 'm':
         params.captureKey = atoi(optarg);
+        continue;
+
+      case 'D':
+        params.autoCapture = true;
         continue;
 
       case 'q':
