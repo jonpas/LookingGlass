@@ -731,8 +731,6 @@ static void handleMouseMoveEvent(int ex, int ey)
       state.updateCursor = true;
       state.warpState    = WARP_STATE_OFF;
 
-      if (params.useSpiceInput)
-        state.drawCursor = false;
       return;
     }
   }
@@ -816,7 +814,6 @@ static void handleWindowLeave()
   if (!params.useSpiceInput)
     return;
 
-  state.drawCursor   = false;
   state.cursorInView = false;
   state.updateCursor = true;
   state.warpState    = WARP_STATE_OFF;
